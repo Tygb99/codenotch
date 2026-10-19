@@ -330,6 +330,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         let wait = networkWait(at: Date())
         if wait > 0, !keychain.isAskingAgain {
             if let last = lastEndpoint, !Self.hasExpiredWindow(last.snapshot.windows, at: Date()) {
+                share(last.snapshot.windows, takenAt: last.at)
                 return last.snapshot
             }
             throw UsageProviderError.rateLimited(retryAfter: wait)
@@ -341,6 +342,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         if let last = lastEndpoint, last.token == token,
            now.timeIntervalSince(last.at) < reuseInterval,
            !Self.hasExpiredWindow(last.snapshot.windows, at: now) {
+            share(last.snapshot.windows, takenAt: last.at)
             return last.snapshot
         }
         if let endpointFetch { return try await endpointFetch.value }
@@ -490,6 +492,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         if let last = lastCLIWindows,
            now.timeIntervalSince(last.at) < reuseInterval,
            !Self.hasExpiredWindow(last.windows, at: now) {
+            share(last.windows, takenAt: last.at)
             return last.windows
         }
         // The lock-out after a signed-out CLI keeps its full interval whatever
@@ -500,6 +503,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         }
         if networkWait(at: now) > 0 {
             if let last = lastCLIWindows, !Self.hasExpiredWindow(last.windows, at: now) {
+                share(last.windows, takenAt: last.at)
                 return last.windows
             }
             return nil
