@@ -300,6 +300,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             // actually skipped: at `.standard` the reading was already offered
             // above, so there is nothing here to reconsider.
             if let desktop, showable, desktopAllowance < desktopFreshness {
+                share(desktop.windows, takenAt: desktop.capturedAt)
                 return snapshot(windows: desktop.windows, plan: profile.organizationPlan(),
                                 resetCredits: resets)
             }
@@ -514,6 +515,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             lastCLIPlan = reading.plan
             lastCLIFailure = nil
             cliYieldsTurn = false
+            if usageCacheFile != nil { ClaudeUsageCacheFile.log("cli ok: \(reading.windows.count) windows") }
             share(reading.windows, takenAt: now)
             Log.usage.debug("\(self.id, privacy: .public): read \(reading.windows.count) windows from claude /usage")
             return reading.windows
@@ -523,7 +525,13 @@ actor ClaudeOAuthProvider: UsageProvider {
                 lastCLIFailure = now
             } else if minNetworkInterval > 0 {
                 cliYieldsTurn = true
+                // A print with no usage lines in it is the CLI's own answer,
+                // not a blip: some Claude Code versions print only the session
+                // cost for `/usage`. Spaced like a sign-out, so the endpoint
+                // gets the turns in between.
+                if case UsageProviderError.badResponse = error { lastCLIFailure = now }
             }
+            if usageCacheFile != nil { ClaudeUsageCacheFile.log("cli failed: \(error)") }
             return nil
         }
     }
@@ -541,6 +549,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         Log.usage.debug("usage endpoint answered \(status)")
+        if usageCacheFile != nil { ClaudeUsageCacheFile.log("endpoint answered \(status)") }
 
         if status == 401 || status == 403 {
             // Rejected but unexpired: the held copy is wrong, which is what
@@ -594,11 +603,14 @@ actor ClaudeOAuthProvider: UsageProvider {
     private func noteNetworkAttempt(via source: String, at now: Date) {
         lastNetworkAttempt = now
         usageCacheFile?.markAttempt(at: now)
+        if usageCacheFile != nil { ClaudeUsageCacheFile.log("request via \(source)", at: now) }
         Log.usage.notice("yong-usage-call \(self.id, privacy: .public) via \(source, privacy: .public)")
     }
 
     private func share(_ windows: [LimitWindow], takenAt: Date) {
-        usageCacheFile?.write(windows: windows, generatedAt: takenAt)
+        guard let usageCacheFile else { return }
+        let wrote = usageCacheFile.write(windows: windows, generatedAt: takenAt)
+        ClaudeUsageCacheFile.log("shared \(wrote ? "written" : "skipped (older or empty)"), taken \(Int(takenAt.timeIntervalSince1970))")
     }
 
     private func currentToken() throws -> String {

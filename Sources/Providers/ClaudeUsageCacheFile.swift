@@ -88,6 +88,29 @@ struct ClaudeUsageCacheFile: Sendable {
         }
     }
 
+    /// One line per Claude request and per outcome, in a file of the user's
+    /// own: the unified log cannot always be read back on this Mac, and the
+    /// fork promises a count of requests. Never a token, only what happened.
+    static let logURL = ClaudeProfile.homeDirectory
+        .appendingPathComponent("Library/Logs/Codenotch/yong-usage.log")
+
+    static func log(_ message: String, at date: Date = Date()) {
+        guard !Runtime.isUnderTest else { return }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        let line = Data("\(formatter.string(from: date)) \(message)\n".utf8)
+        let fileManager = FileManager.default
+        try? fileManager.createDirectory(at: logURL.deletingLastPathComponent(),
+                                         withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: line)
+        } else {
+            fileManager.createFile(atPath: logURL.path, contents: line)
+        }
+    }
+
     func markAttempt(at date: Date = Date()) {
         let path = lockURL.path
         if !FileManager.default.fileExists(atPath: path) {
