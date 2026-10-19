@@ -292,6 +292,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             if result.resetCredits == nil { result.resetCredits = resets }
             return result
         } catch {
+            if usageCacheFile != nil { ClaudeUsageCacheFile.log("endpoint path: \(error)") }
             // Skipping a reading we are holding is only worth it while some live
             // source can answer instead. Where none can — no Claude Code, no
             // usable token, a 429 — that reading is still the truth about the
@@ -609,7 +610,7 @@ actor ClaudeOAuthProvider: UsageProvider {
 
     private func share(_ windows: [LimitWindow], takenAt: Date) {
         guard let usageCacheFile else { return }
-        let wrote = usageCacheFile.write(windows: windows, generatedAt: takenAt)
+        let wrote = usageCacheFile.write(windows: windows, capturedAt: takenAt)
         ClaudeUsageCacheFile.log("shared \(wrote ? "written" : "skipped (older or empty)"), taken \(Int(takenAt.timeIntervalSince1970))")
     }
 

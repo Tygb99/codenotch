@@ -23,8 +23,10 @@ final class YongForkTests: XCTestCase {
             LimitWindow(id: "spend", label: "Spend limit", usedFraction: 0.1,
                         money: UsageMoneyBreakdown(currency: "USD", spent: 1, remaining: 9))
         ]
-        let body = ClaudeUsageCacheFile.payload(windows: windows, generatedAt: Date(timeIntervalSince1970: 100))
-        XCTAssertEqual(body["generated_at"] as? Int, 100)
+        let body = ClaudeUsageCacheFile.payload(windows: windows, capturedAt: Date(timeIntervalSince1970: 100),
+                                                writtenAt: Date(timeIntervalSince1970: 160))
+        XCTAssertEqual(body["generated_at"] as? Int, 160)
+        XCTAssertEqual(body["captured_at"] as? Int, 100)
         let limits = try XCTUnwrap(body["limits"] as? [[String: Any]])
         XCTAssertEqual(limits.map { $0["kind"] as? String }, ["session", "weekly_scoped"])
         XCTAssertTrue(limits[0]["model"] is NSNull)
@@ -37,10 +39,17 @@ final class YongForkTests: XCTestCase {
     func testTheFileIsNeverWoundBack() throws {
         let cache = try temporaryCache()
         let window = [LimitWindow(id: "session", label: "Current session", usedFraction: 0.5)]
-        XCTAssertTrue(cache.write(windows: window, generatedAt: Date(timeIntervalSince1970: 200)))
-        XCTAssertFalse(cache.write(windows: window, generatedAt: Date(timeIntervalSince1970: 100)))
+        XCTAssertTrue(cache.write(windows: window, capturedAt: Date(timeIntervalSince1970: 200),
+                                  writtenAt: Date(timeIntervalSince1970: 300)))
+        XCTAssertFalse(cache.write(windows: window, capturedAt: Date(timeIntervalSince1970: 100),
+                                   writtenAt: Date(timeIntervalSince1970: 400)))
+        // The same reading confirmed again moves `generated_at`, so the status
+        // line's age check sees a live source.
+        XCTAssertTrue(cache.write(windows: window, capturedAt: Date(timeIntervalSince1970: 200),
+                                  writtenAt: Date(timeIntervalSince1970: 500)))
         let held = try JSONSerialization.jsonObject(with: Data(contentsOf: cache.url)) as? [String: Any]
-        XCTAssertEqual(held?["generated_at"] as? Int, 200)
+        XCTAssertEqual(held?["generated_at"] as? Int, 500)
+        XCTAssertEqual(held?["captured_at"] as? Int, 200)
     }
 
     private final class Calls: @unchecked Sendable {

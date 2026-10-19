@@ -38,7 +38,12 @@ struct ClaudeUsageCacheFile: Sendable {
 
     /// The file's body for these windows. Money windows are left out — the
     /// script never wrote one — and so is any window without a percentage.
-    static func payload(windows: [LimitWindow], generatedAt: Date) -> [String: Any] {
+    ///
+    /// `generated_at` is when this app last confirmed the reading, which is
+    /// what the status line's age check means: re-reading Desktop's entry is a
+    /// fresh confirmation even when the entry itself is a few minutes old.
+    /// When the numbers were actually taken goes in `captured_at`.
+    static func payload(windows: [LimitWindow], capturedAt: Date, writtenAt: Date) -> [String: Any] {
         let limits: [[String: Any]] = windows.compactMap { window in
             guard window.money == nil, let fraction = window.usedFraction else { return nil }
             let percent = Int((fraction * 100).rounded())
@@ -54,7 +59,9 @@ struct ClaudeUsageCacheFile: Sendable {
                 "resets_at": window.resetsAt.map(timestamp) ?? NSNull()
             ]
         }
-        return ["generated_at": Int(generatedAt.timeIntervalSince1970), "limits": limits]
+        return ["generated_at": Int(writtenAt.timeIntervalSince1970),
+                "captured_at": Int(capturedAt.timeIntervalSince1970),
+                "limits": limits]
     }
 
     static func timestamp(_ date: Date) -> String {
@@ -65,17 +72,18 @@ struct ClaudeUsageCacheFile: Sendable {
         return formatter.string(from: date)
     }
 
-    /// Writes the reading, atomically, unless the file already holds a newer
-    /// one — a Desktop cache entry can be older than what the script last
-    /// fetched, and the file must never go backwards.
+    /// Writes the reading, atomically, unless the file already holds one taken
+    /// later — a Desktop cache entry can be older than what the endpoint last
+    /// answered, and the numbers must never go backwards. A file the script
+    /// wrote has no `captured_at`; its `generated_at` is the same thing there.
     @discardableResult
-    func write(windows: [LimitWindow], generatedAt: Date) -> Bool {
-        let body = Self.payload(windows: windows, generatedAt: generatedAt)
+    func write(windows: [LimitWindow], capturedAt: Date, writtenAt: Date = Date()) -> Bool {
+        let body = Self.payload(windows: windows, capturedAt: capturedAt, writtenAt: writtenAt)
         guard let limits = body["limits"] as? [[String: Any]], !limits.isEmpty else { return false }
         if let held = try? Data(contentsOf: url),
            let object = try? JSONSerialization.jsonObject(with: held) as? [String: Any],
-           let heldAt = object["generated_at"] as? Double,
-           heldAt > generatedAt.timeIntervalSince1970 {
+           let heldAt = (object["captured_at"] ?? object["generated_at"]) as? Double,
+           heldAt > capturedAt.timeIntervalSince1970 {
             return false
         }
         guard let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
