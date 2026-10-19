@@ -14,7 +14,7 @@ settings:
     # Sources/Info.plist reads both from here — hardcoding them there instead
     # silently pins every build to one version, so no customer ever sees an
     # update. Bump CURRENT_PROJECT_VERSION on every release.
-    MARKETING_VERSION: "1.23.0"
+    MARKETING_VERSION: "1.23.0-yong"
     CURRENT_PROJECT_VERSION: "25"
     # Signed with a stable identity on purpose. The app reads Claude Code's
     # OAuth token out of the login keychain, and the keychain's ACL remembers
@@ -115,7 +115,9 @@ targets:
         # Set explicitly so Sparkle never asks on first launch. Left unset, it
         # shows a "check for updates automatically?" prompt, which is exactly
         # the permission this is meant to avoid.
-        SUEnableAutomaticChecks: true
+        # Yong fork: off, so the upstream feed never replaces this build. See
+        # `Updater.isFork`, which also keeps Sparkle from starting.
+        SUEnableAutomaticChecks: false
         # Never downloads unasked: a new version is offered in the notch and
         # installed when Update is chosen — see `Updater`.
         SUAutomaticallyUpdate: false

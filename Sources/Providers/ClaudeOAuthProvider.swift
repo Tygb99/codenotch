@@ -54,6 +54,18 @@ actor ClaudeOAuthProvider: UsageProvider {
     private var endpointFetch: Task<ProviderSnapshot, Error>?
     private let minEndpointInterval: TimeInterval
     private let liveMinEndpointInterval: TimeInterval
+    /// **Yong fork:** the least time between any two network readings, the
+    /// CLI's and the endpoint's alike. `claude /usage` asks the same
+    /// rate-limited endpoint, so spacing each source on its own let a failing
+    /// CLI and its endpoint fallback spend two requests per pass. Zero keeps
+    /// upstream behaviour; the app passes two minutes.
+    private let minNetworkInterval: TimeInterval
+    private var lastNetworkAttempt: Date?
+    /// Set when the CLI failed without being signed out, so the next open turn
+    /// goes to the endpoint rather than to the CLI again.
+    private var cliYieldsTurn = false
+    /// Where each reading is shared with the terminal status line, or nil.
+    nonisolated private let usageCacheFile: ClaudeUsageCacheFile?
 
     private let archive: UsageArchive
     /// How this profile's token is obtained. Injected for the same reason
@@ -147,7 +159,11 @@ actor ClaudeOAuthProvider: UsageProvider {
          liveDesktopFreshness: TimeInterval = 2 * 60,
          desktopRescanInterval: TimeInterval = 5 * 60,
          minEndpointInterval: TimeInterval = 5 * 60,
-         liveMinEndpointInterval: TimeInterval = 2 * 60) {
+         liveMinEndpointInterval: TimeInterval = 2 * 60,
+         minNetworkInterval: TimeInterval = 0,
+         usageCacheFile: ClaudeUsageCacheFile? = nil) {
+        self.minNetworkInterval = minNetworkInterval
+        self.usageCacheFile = profile.slug == nil ? usageCacheFile : nil
         self.cli = cli
         self.cliRefreshInterval = cliRefreshInterval
         self.liveCLIRefreshInterval = liveCLIRefreshInterval
@@ -246,6 +262,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             // The cache carries no plan, so the reading would say nothing about
             // whose it is — the one thing worth knowing when two Claude rings
             // sit side by side.
+            share(desktop.windows, takenAt: desktop.capturedAt)
             return snapshot(windows: desktop.windows, plan: profile.organizationPlan(),
                             resetCredits: resets)
         }
@@ -306,6 +323,14 @@ actor ClaudeOAuthProvider: UsageProvider {
             let remaining = retryNoEarlierThan.timeIntervalSinceNow
             Log.usage.debug("skipping fetch, backing off for \(remaining, format: .fixed(precision: 0))s")
             throw UsageProviderError.rateLimited(retryAfter: remaining)
+        }
+        // Before the token, so a closed turn never costs a keychain read.
+        let wait = networkWait(at: Date())
+        if wait > 0, !keychain.isAskingAgain {
+            if let last = lastEndpoint, !Self.hasExpiredWindow(last.snapshot.windows, at: Date()) {
+                return last.snapshot
+            }
+            throw UsageProviderError.rateLimited(retryAfter: wait)
         }
         // An explicit permission request must reach the keychain even if usage is cached.
         if keychain.isAskingAgain { credentials = nil }
@@ -471,18 +496,33 @@ actor ClaudeOAuthProvider: UsageProvider {
         if let lastCLIFailure, now.timeIntervalSince(lastCLIFailure) < cliRefreshInterval {
             return nil
         }
+        if networkWait(at: now) > 0 {
+            if let last = lastCLIWindows, !Self.hasExpiredWindow(last.windows, at: now) {
+                return last.windows
+            }
+            return nil
+        }
+        if cliYieldsTurn {
+            cliYieldsTurn = false
+            return nil
+        }
+        noteNetworkAttempt(via: "cli", at: now)
 
         do {
             let reading = try await cli.readWithPlan(profile: profile, now: now)
             lastCLIWindows = (reading.windows, now)
             lastCLIPlan = reading.plan
             lastCLIFailure = nil
+            cliYieldsTurn = false
+            share(reading.windows, takenAt: now)
             Log.usage.debug("\(self.id, privacy: .public): read \(reading.windows.count) windows from claude /usage")
             return reading.windows
         } catch {
             Log.usage.debug("\(self.id, privacy: .public): claude /usage did not answer, falling back to the token")
             if case UsageProviderError.needsAuth = error {
                 lastCLIFailure = now
+            } else if minNetworkInterval > 0 {
+                cliYieldsTurn = true
             }
             return nil
         }
@@ -497,6 +537,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         request.timeoutInterval = 15
 
         Log.usage.debug("\(self.id, privacy: .public): GET /api/oauth/usage")
+        noteNetworkAttempt(via: "endpoint", at: Date())
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         Log.usage.debug("usage endpoint answered \(status)")
@@ -539,7 +580,25 @@ actor ClaudeOAuthProvider: UsageProvider {
         let result = snapshot(windows: windows, plan: credentials?.subscriptionType,
                               resetCredits: payload.cedarEmber?.credits(at: Date()))
         lastEndpoint = (result, Date(), token)
+        share(windows, takenAt: Date())
         return result
+    }
+
+    /// How long until the next network reading may be taken; zero or less is now.
+    private func networkWait(at now: Date) -> TimeInterval {
+        guard let lastNetworkAttempt else { return 0 }
+        return minNetworkInterval - now.timeIntervalSince(lastNetworkAttempt)
+    }
+
+    /// One line per request at notice level, so `log show` can count them.
+    private func noteNetworkAttempt(via source: String, at now: Date) {
+        lastNetworkAttempt = now
+        usageCacheFile?.markAttempt(at: now)
+        Log.usage.notice("yong-usage-call \(self.id, privacy: .public) via \(source, privacy: .public)")
+    }
+
+    private func share(_ windows: [LimitWindow], takenAt: Date) {
+        usageCacheFile?.write(windows: windows, generatedAt: takenAt)
     }
 
     private func currentToken() throws -> String {

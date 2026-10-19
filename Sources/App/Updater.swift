@@ -83,7 +83,13 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// last ran is offered as it launches. Deliberately not in `init`: the
     /// updater is lazy so that `self` exists before it is handed over as the
     /// delegate.
+    /// **Yong fork:** this build is not the upstream app, and the upstream
+    /// feed would replace it. Sparkle is never started, so nothing is checked,
+    /// downloaded or installed.
+    static let isFork = true
+
     func start() {
+        guard !Self.isFork else { return }
         guard !started else { return }
         started = true
         sparkle.automaticallyDownloadsUpdates = false
@@ -218,6 +224,10 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// This one *does* show UI — it was asked for, so silence would read as a
     /// broken button.
     func checkNow() {
+        guard !Self.isFork else {
+            outcome = .failed("Updates are off in this fork (\(currentVersion)). Rebuild it from its own repository instead.")
+            return
+        }
         start()
         outcome = .checking
         sparkle.checkForUpdates()

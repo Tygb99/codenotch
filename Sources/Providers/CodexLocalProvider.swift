@@ -14,12 +14,13 @@ actor CodexLocalProvider: UsageProvider {
     private var retryNoEarlierThan: Date?
 
     init(profile: CodexProfile = .default(),
+         displayName: String? = nil,
          session: URLSession = .shared,
          authURL: URL? = nil,
          archive: UsageArchive = UsageArchive()) {
         self.profile = profile
         self.id = profile.id
-        self.displayName = profile.displayName
+        self.displayName = displayName ?? profile.displayName
         self.session = session
         self.authURL = authURL ?? profile.authURL
         self.archive = archive

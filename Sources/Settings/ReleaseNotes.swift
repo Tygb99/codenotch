@@ -31,6 +31,27 @@ struct ReleaseNote: Equatable {
 enum ReleaseNotes {
     static var all: [ReleaseNote] {
         [
+            // The yong fork's own build, on top of 1.23.0. Not localized: it
+            // is one person's fork, and the catalog belongs to upstream.
+            ReleaseNote(
+                version: "1.23.0-yong",
+                headline: "Yong fork: one Claude reader, every ChatGPT account, the Dori's lanes, and no auto-update.",
+                changes: [
+                    ReleaseNote.Change(
+                        title: "One Claude reader",
+                        detail: "At most one Claude reading every two minutes, shared with the terminal status line through its cache file."
+                    ),
+                    ReleaseNote.Change(
+                        title: "Every ChatGPT account",
+                        detail: "Each account opencodex holds gets a ring of its own, read from opencodex's local quota cache."
+                    ),
+                    ReleaseNote.Change(
+                        title: "Dori lanes",
+                        detail: "Open lanes counted in the notch, red when the boss is needed, listed on hover."
+                    ),
+                    ReleaseNote.Change(title: "No auto-update")
+                ]
+            ),
             ReleaseNote(
                 version: "1.23.0",
                 headline: L10n.t("Show what is left instead of what is used, a Dock style, oMLX, and Claude and Codex on your own servers."),

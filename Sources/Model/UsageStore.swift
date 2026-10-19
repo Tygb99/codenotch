@@ -607,6 +607,16 @@ final class UsageStore: ObservableObject {
         return beginRefresh(provider, freshness: freshness, holdIndicator: true)
     }
 
+    /// **Yong fork:** re-read a provider whose source is a local file, without
+    /// moving the schedule's clock — `refresh(providerID:)` stamps
+    /// `lastAttempt`, and stamping it every half minute would hold off every
+    /// other provider's idle refresh for good.
+    func refreshLocalFile(providerID: String) {
+        guard let provider = providers.first(where: { $0.id == providerID }),
+              !disconnected.contains(providerID), fetchTasks[providerID] == nil else { return }
+        _ = beginRefresh(provider)
+    }
+
     func refreshLocalRuntimes() {
         for provider in providers where provider.kind == .localRuntime && !disconnected.contains(provider.id) {
             _ = beginRefresh(provider)

@@ -92,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// refresher needs to ask one of them how long its token has left, and the
     /// protocol has no business carrying that.
     private var claudeProviders: [ClaudeOAuthProvider] = []
+    /// Yong fork: re-reads the Dori's lane files between usage passes.
+    private var laneTimer: Timer?
     /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
     private var miniMaxWeb: WebSessionProvider?
 
@@ -173,9 +175,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // signed-in address can collide with another profile's, and only a
             // caller holding every profile can see that.
             let claudeNames = ClaudeProfile.displayNames(for: claudeProfiles)
+            // Yong fork: at most one Claude reading every two minutes, CLI and
+            // endpoint together, each one shared with the terminal status line.
             let claudeProviders = claudeProfiles.map {
-                ClaudeOAuthProvider(profile: $0, displayName: claudeNames[$0.id])
+                ClaudeOAuthProvider(profile: $0, displayName: claudeNames[$0.id],
+                                    liveCLIRefreshInterval: 2 * 60,
+                                    minNetworkInterval: 2 * 60,
+                                    usageCacheFile: ClaudeUsageCacheFile.statusLine())
             }
+            // Yong fork: every ChatGPT account opencodex holds gets its own ring,
+            // named by the first four characters of its address.
+            let openCodexAccounts = OpenCodexAccounts.extraAccounts()
+            let mainCodexName = openCodexAccounts.isEmpty ? nil
+                : CodexCredentials.account()?.label.map { "GPT \(OpenCodexAccounts.masked($0))" }
             self.claudeProviders = claudeProviders
             let customProviders: [UsageProvider] = preferences.customEndpoints.filter(\.isEnabled).map { endpoint in
                 CustomEndpointProvider(endpoint: endpoint)
@@ -185,7 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .map { $0.makeProvider() }
             let allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
-                + codexProfiles.map { CodexLocalProvider(profile: $0) }
+                + codexProfiles.map { CodexLocalProvider(profile: $0, displayName: $0.slug == nil ? mainCodexName : nil) }
+                + openCodexAccounts.map { OpenCodexAccountProvider(entry: $0) }
+                + [DoriLanesProvider()]
                 + antigravityProfiles.map { AntigravityProvider(profile: $0) }
                 + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), GrokBotProvider(), DevinLocalProvider(), OpenCodeProvider()]
                 + commandCodeProfiles.map { CommandCodeProvider(profile: $0) }
@@ -898,6 +912,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 .store(in: &cancellables)
             store.start()
+            let laneTimer = Timer(timeInterval: 30, repeats: true) { [weak store] _ in
+                MainActor.assumeIsolated { store?.refreshLocalFile(providerID: DoriLanesProvider.providerID) }
+            }
+            RunLoop.main.add(laneTimer, forMode: .common)
+            self.laneTimer = laneTimer
             fleet.onRefresh = { [weak store] in store?.refreshNow(freshness: .fromSource) }
             fleet.onLook = { [weak store] in store?.refreshBecauseSomeoneIsLooking() }
             fleet.onRefreshProvider = { [weak store] id in

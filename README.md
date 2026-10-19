@@ -1,3 +1,12 @@
+> **What this fork changes** (branch `yong`, version `1.23.0-yong`; [한국어](README.ko.md))
+>
+> - **One Claude reader.** Claude usage is read at most once every two minutes, with `claude /usage` and the usage endpoint sharing that budget. Every reading is written to `~/.claude/statusline/usage-cache.json` in the status-line script's own format. A patched status line reads that file while Codenotch is running, so the endpoint is no longer asked twice and stops answering 429.
+> - **Every ChatGPT account.** Accounts kept by opencodex (`~/.opencodex`) each get their own ring, read from opencodex's local quota cache with no extra requests. Only the first four characters of each address are shown.
+> - **Dori lanes.** A cell counts the open lanes in `~/.dori/state/lanes`. Its arc is the share still working. It turns red when a `REPORT` line saying "사장 필요" has appeared in `~/.omo/omomeow/reports.log` within the hour. Hovering lists each lane's key and title. Both sources are read-only.
+> - **No auto-update.** Sparkle is never started, so the upstream feed cannot replace this build.
+>
+> Build and test exactly as below ([Building](#building)). Upstream: [vinzdg/codenotch](https://github.com/vinzdg/codenotch).
+
 <div align="center">
 
 ![Codenotch](docs/design/codenotch-banner.png)
